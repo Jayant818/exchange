@@ -29,29 +29,6 @@ function createToken(email: string) {
   return token;
 }
 
-async function sendAndAwait(topic: string, message: any) {
-  return new Promise(async (res) => {
-    const SubscriberClient = await createClient().connect();
-
-    const producer = KafkaProducer.getInstance().getProducer();
-
-    SubscriberClient.subscribe(message.orderId, (msg) => {
-      console.log("Received message:", msg);
-
-      res("Resolved");
-    });
-
-    await producer.send({
-      messages: [
-        {
-          value: JSON.stringify(message),
-        },
-      ],
-      topic,
-    });
-  });
-}
-
 const ACCESS_TOKEN = "";
 const REFRESH_TOKEN = "";
 
@@ -315,14 +292,15 @@ async function main() {
         ],
       });
 
-      await KafkaConsumer.getInstance().addCallBack(msgId, (msg) => {
-        return res.status(200).json({
-          balance: msg.balance,
-        });
+      let data: any = await KafkaConsumer.getInstance().addCallBack(msgId);
+
+
+      return res.status(200).json({
+        balance: data.balance,
       });
     } catch (error) {
       res.status(400).json({
-        message: "Error Fecthing USD Balance",
+        message: "Error Fetching USD Balance",
       });
     }
   });
@@ -343,10 +321,11 @@ async function main() {
         ],
       });
 
-      await KafkaConsumer.getInstance().addCallBack(msgId, (msg) => {
-        return res.status(200).json({
-          balance: msg.balance,
-        });
+      const data: any = await KafkaConsumer.getInstance().addCallBack(msgId);
+
+      return res.status(200).json({
+        message: "Balance fetched successfully",
+        balance: data.balance,
       });
     } catch (error) {
       res.status(400).json({
@@ -371,14 +350,15 @@ async function main() {
         ],
       });
 
-      await KafkaConsumer.getInstance().addCallBack(msgId, (msg) => {
-        return res.status(200).json({
-          assets: msg.assets,
-        });
+      const data: any = await KafkaConsumer.getInstance().addCallBack(msgId);
+
+      return res.status(200).json({
+        message: "Assets fetched successfully",
+        assets: data.assets,
       });
     } catch (error) {
       res.status(400).json({
-        message: "Error Fetching Balance",
+        message: "Error Fetching Assets ",
       });
     }
   });

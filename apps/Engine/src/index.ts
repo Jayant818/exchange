@@ -56,6 +56,18 @@ async function main() {
             const { email, balance } = parsed;
             Users.set(email, { balance });
             console.log("User Registered:", email, balance);
+            await producer.send({
+              topic: ENGINE_TO_SERVER,
+              messages: [
+                {
+                  value: JSON.stringify({
+                    msgId: parsed.msgId,
+                    email,
+                    balance,
+                  }),
+                },
+              ],
+            });
             break;
           }
 
@@ -68,7 +80,8 @@ async function main() {
               leverage,
               slippage,
             } = parsed;
-            orders.set(orderId, { asset, side, margin, leverage, slippage });
+            // Lock the balance according to the leverage and margin
+            // orders.set(orderId, { asset, side, margin, leverage, slippage });
             // Map order to user if needed
             console.log("Order Created:", orderId, asset, side);
             break;
@@ -95,6 +108,7 @@ async function main() {
           }
 
           case EVENT_TYPE.BALANCE_CHECK_USD: {
+            console.log("Balance check event received:", parsed);
             const { msgId, email } = parsed;
 
             const balance = Users.get(email)?.balance;

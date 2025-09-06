@@ -11,7 +11,7 @@ export class KafkaConsumer {
       brokers: ["localhost:9092"],
     });
 
-    this.consumer = kafka.consumer({ groupId: "order-group" });
+    this.consumer = kafka.consumer({ groupId: "server-group" });
     this.consumer.connect();
   }
 
@@ -23,6 +23,7 @@ export class KafkaConsumer {
   }
 
   async listenToTopic(topic: string) {
+    console.log("Listening to topic:", topic);
     await this.consumer.subscribe({ topic, fromBeginning: true });
 
     await this.consumer.run({
@@ -30,20 +31,22 @@ export class KafkaConsumer {
         console.log(`Received message: ${message.message.value?.toString()}`);
         const val = message.message.value?.toString() || "";
         const parsed = JSON.parse(val);
-        const id = parsed.msgId;
+        const id = parsed.msgId.toString();
+        console.log("Message ID:", id);
+
         if (this.callbacks[id]) {
-          this.callbacks[id](val);
+          console.log("Invoking callback for ID:", id);
+          this.callbacks[id](parsed);
           delete this.callbacks[id];
         }
       },
     });
   }
 
-  addCallBack(id: string, Callback?: (val: any) => {}) {
+  addCallBack(id: string) {
     return new Promise((res) => {
       this.callbacks[id] = (val: any) => {
-        res(true);
-        Callback && Callback(val);
+        res(val);
       };
     });
   }
