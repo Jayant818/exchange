@@ -79,8 +79,15 @@ async function main() {
               margin,
               leverage,
               slippage,
+              email,
             } = parsed;
             // Lock the balance according to the leverage and margin
+
+            let amountToLock = 0;
+
+            if (leverage) {
+              amountToLock = margin * leverage;
+            }
             // orders.set(orderId, { asset, side, margin, leverage, slippage });
             // Map order to user if needed
             console.log("Order Created:", orderId, asset, side);
@@ -88,14 +95,14 @@ async function main() {
           }
 
           case EVENT_TYPE.ORDER_CANCELLED: {
-            const { msgId: orderId } = parsed;
+            const { msgId: orderId, email } = parsed;
             orders.delete(orderId);
             console.log("Order Cancelled:", orderId);
             break;
           }
 
           case EVENT_TYPE.ORDER_CLOSED: {
-            const { orderId } = parsed;
+            const { orderId, email } = parsed;
             orders.delete(orderId);
             console.log("Order Closed:", orderId);
             break;
@@ -130,8 +137,23 @@ async function main() {
           }
 
           case EVENT_TYPE.FULL_BALANCE_CHECK: {
-            const { msgId, balance } = parsed;
-            console.log("Full Balance Check:", msgId, balance);
+            const { msgId, balance, email } = parsed;
+            console.log("Full Balance Check:", msgId, balance, email);
+
+            const totalAssets = Users.get(email) || {};
+
+            await producer.send({
+              topic: ENGINE_TO_SERVER,
+              messages: [
+                {
+                  value: JSON.stringify({
+                    msgId,
+                    assets: totalAssets,
+                  }),
+                },
+              ],
+            });
+
             break;
           }
 

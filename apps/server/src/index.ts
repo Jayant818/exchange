@@ -208,7 +208,8 @@ async function main() {
 
   app.post("/api/v1/trade/create", async (req, res) => {
     try {
-      const { asset, side, margin, leverage, slippage } = req.body;
+      // Here we are simulating frontend otherwise we will get email from the token
+      const { asset, side, margin, leverage, slippage, email } = req.body;
 
       if (!asset || !side || !margin || !leverage || !slippage) {
         return res.status(400).json({ message: "Invalid Trade Parameters" });
@@ -228,6 +229,7 @@ async function main() {
               leverage,
               slippage,
               msgId,
+              email,
             }),
           },
         ],
@@ -247,7 +249,7 @@ async function main() {
 
   app.post("/api/v1/trade/close", async (req, res) => {
     try {
-      const { orderId } = req.body;
+      const { orderId, email } = req.body;
 
       await producer.send({
         topic: ORDER_TOPIC,
@@ -256,6 +258,7 @@ async function main() {
             value: JSON.stringify({
               type: EVENT_TYPE.ORDER_CLOSED,
               orderId,
+              email,
             }),
           },
         ],
@@ -294,7 +297,6 @@ async function main() {
 
       let data: any = await KafkaConsumer.getInstance().addCallBack(msgId);
 
-
       return res.status(200).json({
         balance: data.balance,
       });
@@ -307,6 +309,7 @@ async function main() {
 
   app.get("/api/v1/balance", async (req, res) => {
     try {
+      const email = req.query.email;
       const msgId = crypto.randomUUID();
 
       await producer.send({
@@ -316,6 +319,7 @@ async function main() {
             value: JSON.stringify({
               type: EVENT_TYPE.FULL_BALANCE_CHECK,
               msgId,
+              email,
             }),
           },
         ],
