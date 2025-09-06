@@ -3,7 +3,7 @@ import { Consumer, Kafka } from "kafkajs";
 export class KafkaConsumer {
   static instance: KafkaConsumer;
   consumer: Consumer;
-  callbacks: Record<string, () => void> = {};
+  callbacks: Record<string, (val: any) => void> = {};
 
   private constructor() {
     const kafka = new Kafka({
@@ -32,17 +32,18 @@ export class KafkaConsumer {
         const parsed = JSON.parse(val);
         const id = parsed.orderId;
         if (this.callbacks[id]) {
-          this.callbacks[id]();
+          this.callbacks[id](val);
           delete this.callbacks[id];
         }
       },
     });
   }
 
-  addCallBack(id: string) {
+  addCallBack(id: string, Callback?: (val: any) => {}) {
     return new Promise((res) => {
-      this.callbacks[id] = () => {
+      this.callbacks[id] = (val: any) => {
         res(true);
+        Callback && Callback(val);
       };
     });
   }

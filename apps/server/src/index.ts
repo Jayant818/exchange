@@ -229,24 +229,157 @@ async function main() {
     console.log(req.body);
   });
 
-  app.post("/api/v1/trade/create", (req, res) => {
-    const { id } = req.body;
+  app.post("/api/v1/trade/create", async (req, res) => {
+    try {
+      const { asset, side, margin, leverage, slippage } = req.body;
 
-    if (!id) {
-      return res.status(400).json({ message: "Invalid Order" });
+      if (!asset || !side || !margin || !leverage || !slippage) {
+        return res.status(400).json({ message: "Invalid Trade Parameters" });
+      }
+
+      const msgId = crypto.randomUUID();
+
+      await producer.send({
+        topic: ORDER_TOPIC,
+        messages: [
+          {
+            value: JSON.stringify({
+              type: EVENT_TYPE.ORDER_CREATED,
+              asset,
+              side,
+              margin,
+              leverage,
+              slippage,
+              msgId,
+            }),
+          },
+        ],
+      });
+
+      await KafkaConsumer.getInstance().addCallBack(msgId);
+
+      return res
+        .status(200)
+        .json({ message: "Order Placed Successfully", orderId: msgId });
+    } catch (error) {
+      return res.status(400).json({
+        message: "Error Creating Order",
+      });
     }
-
-    sendAndAwait("order", {
-      orderId: id,
-      type: "buy",
-    });
-
-    return res.status(200).json({ message: "Order Placed Successfully" });
   });
 
-  app.delete("/api/v1/trade/delete", (req, res) => {});
+  app.post("/api/v1/trade/close", async (req, res) => {
+    try {
+      const { orderId } = req.body;
 
-  app.get("/api/v1/balance", (req, res) => {});
+      await producer.send({
+        topic: ORDER_TOPIC,
+        messages: [
+          {
+            value: JSON.stringify({
+              type: EVENT_TYPE.ORDER_CLOSED,
+              orderId,
+            }),
+          },
+        ],
+      });
+
+      await KafkaConsumer.getInstance().addCallBack(orderId);
+
+      return res.status(200).json({
+        message: "Position Closed successfull",
+        orderId,
+      });
+    } catch (error) {
+      return res.status(400).json({
+        message: "Error closing position",
+      });
+    }
+  });
+
+  app.get("/api/v1/balance/usd", async (req, res) => {
+    try {
+      const msgId = crypto.randomUUID();
+
+      await producer.send({
+        topic: ORDER_TOPIC,
+        messages: [
+          {
+            value: JSON.stringify({
+              type: EVENT_TYPE.BALANCE_CHECK_USD,
+              msgId,
+            }),
+          },
+        ],
+      });
+
+      await KafkaConsumer.getInstance().addCallBack(msgId, (msg) => {
+        return res.status(200).json({
+          balance: msg.balance,
+        });
+      });
+    } catch (error) {
+      res.status(400).json({
+        message: "Error Fecthing USD Balance",
+      });
+    }
+  });
+
+  app.get("/api/v1/balance", async (req, res) => {
+    try {
+      const msgId = crypto.randomUUID();
+
+      await producer.send({
+        topic: ORDER_TOPIC,
+        messages: [
+          {
+            value: JSON.stringify({
+              type: EVENT_TYPE.FULL_BALANCE_CHECK,
+              msgId,
+            }),
+          },
+        ],
+      });
+
+      await KafkaConsumer.getInstance().addCallBack(msgId, (msg) => {
+        return res.status(200).json({
+          balance: msg.balance,
+        });
+      });
+    } catch (error) {
+      res.status(400).json({
+        message: "Error Fetching Balance",
+      });
+    }
+  });
+
+  app.get("/api/v1/supportedAssets", async (req, res) => {
+    try {
+      const msgId = crypto.randomUUID();
+
+      await producer.send({
+        topic: ORDER_TOPIC,
+        messages: [
+          {
+            value: JSON.stringify({
+              type: EVENT_TYPE.SUPPORTED_ASSETS,
+              msgId,
+            }),
+          },
+        ],
+      });
+
+      await KafkaConsumer.getInstance().addCallBack(msgId, (msg) => {
+        return res.status(200).json({
+          assets: msg.assets,
+        });
+      });
+    } catch (error) {
+      res.status(400).json({
+        message: "Error Fetching Balance",
+      });
+    }
+  });
 
   app.listen(port, () => {
     console.log("Server is running on http://localhost:" + port);
