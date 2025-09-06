@@ -1,6 +1,8 @@
 import WebSocket from "ws";
 import { createClient } from "redis";
 import { KafkaProducer } from "@repo/shared-kafka";
+import { EVENT_TYPE, ORDER_TOPIC } from "@repo/constants";
+import { KafkaJSDeleteGroupsError } from "kafkajs";
 
 const PRICE_CHANNEL = "price_update";
 
@@ -19,6 +21,8 @@ interface price {
 async function main() {
   const ws = new WebSocket("wss://ws.backpack.exchange/");
   ws.on("error", console.error);
+  await KafkaProducer.getInstance().connect();
+
   const producer = KafkaProducer.getInstance().getProducer();
 
   let SOL_PRICE: price | Object = {};
@@ -53,11 +57,12 @@ async function main() {
     console.log(data);
   });
 
-  setInterval(() => {
-    producer.send({
-      topic: "current_price",
+  setInterval(async () => {
+    await producer.send({
+      topic: ORDER_TOPIC,
       messages: [
         {
+          type: EVENT_TYPE.PRICE_UPDATE,
           value: JSON.stringify({
             SOL_PRICE,
             ETH_PRICE,

@@ -11,7 +11,6 @@ export class KafkaProducer {
     });
 
     this.producer = kafka.producer();
-    this.producer.connect();
   }
 
   static getInstance() {
@@ -19,6 +18,14 @@ export class KafkaProducer {
       KafkaProducer.instance = new KafkaProducer();
     }
     return KafkaProducer.instance;
+  }
+
+  async connect() {
+    try {
+      await this.producer.connect();
+    } catch (error) {
+      console.error("Error connecting Kafka producer:", error);
+    }
   }
 
   getProducer() {

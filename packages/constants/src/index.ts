@@ -2,3 +2,11 @@ export const USER_REGISTER_TOPIC = "user-register-topic";
 export const ORDER_TOPIC = "orders";
 export const CURRENT_PRICE_TOPIC = "current_price";
 export const PRICE_UPDATE_CHANNEL = "price_update";
+export const ENGINE_TO_SERVER = "engine_to_server";
+
+export enum EVENT_TYPE {
+  USER_REGISTER = "USER_REGISTER",
+  ORDER_CREATED = "ORDER_CREATED",
+  ORDER_CANCELLED = "ORDER_CANCELLED",
+  PRICE_UPDATE = "PRICE_UPDATE",
+}

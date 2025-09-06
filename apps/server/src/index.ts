@@ -5,7 +5,9 @@ import nodemailer from "nodemailer";
 import { KafkaProducer } from "@repo/shared-kafka";
 import { createClient } from "redis";
 import prismaClient from "@repo/db";
-import { USER_REGISTER_TOPIC } from "@repo/constants";
+import { ENGINE_TO_SERVER, EVENT_TYPE, ORDER_TOPIC } from "@repo/constants";
+import crypto from "crypto";
+import { KafkaConsumer } from "./KafkaConsumer";
 
 let message = {
   to: "",
@@ -67,6 +69,12 @@ async function main() {
       pass: process.env.APP_PASSWORD,
     },
   });
+
+  await KafkaProducer.getInstance().connect();
+
+  const producer = KafkaProducer.getInstance().getProducer();
+
+  KafkaConsumer.getInstance().listenToTopic(ENGINE_TO_SERVER);
 
   async function sendLoginMail(email: string, token: string) {
     try {
@@ -157,6 +165,7 @@ async function main() {
 
   app.get("/verify", async (req, res) => {
     try {
+      console.log("HIT");
       const { id } = req.query;
 
       if (!id) {
@@ -179,7 +188,7 @@ async function main() {
         return res.status(400).json({ message: "Invalid Token" });
       }
 
-      const user = await prismaClient.user.update({
+      await prismaClient.user.update({
         where: {
           email: verifiedToken.email,
         },
@@ -188,19 +197,28 @@ async function main() {
         },
       });
 
-      const producer = KafkaProducer.getInstance().getProducer();
+      const msgId = crypto.randomUUID();
+
+      console.log("HIT2");
 
       await producer.send({
-        topic: USER_REGISTER_TOPIC,
+        topic: ORDER_TOPIC,
         messages: [
           {
             value: JSON.stringify({
+              type: EVENT_TYPE.USER_REGISTER,
               email: verifiedToken.email,
               balance: 500000,
+              msgId,
             }),
           },
         ],
       });
+
+      console.log("HIT3");
+
+      await KafkaConsumer.getInstance().addCallBack(msgId);
+      console.log("HIT4");
 
       res.cookie("token", verifiedToken);
       return res.redirect("http://localhost:3000/verified");

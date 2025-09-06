@@ -7,7 +7,8 @@
     "dev":"tsc -b && node dist/index.js"
   },
   "dependencies": {
-    "@repo/shared-kafka":"1.0.0"
+    "@repo/shared-kafka":"1.0.0",
+    "@repo/constants":"1.0.0"
   },
   "keywords": [],
   "author": "",

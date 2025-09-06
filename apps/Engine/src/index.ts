@@ -1,3 +1,4 @@
+import { EVENT_TYPE, ORDER_TOPIC } from "@repo/constants";
 import { Kafka } from "kafkajs";
 import { createClient } from "redis";
 
@@ -10,6 +11,12 @@ let orders = new Map();
 
 // user->orderIds[]
 let mappedOrderswithUser = new Map<string, string[]>();
+
+setInterval(() => {
+  console.log("USERS", Users);
+  console.log("ORDERS", orders);
+  console.log("MAPPED_ORDERS", mappedOrderswithUser);
+}, 20000);
 
 // Queue - Order Handle - API request - While looop
 // pubsub subscribe kar rakha hai
@@ -25,13 +32,34 @@ async function main() {
     await consumer.connect();
 
     await consumer.subscribe({
-      topic: "current_price",
+      topic: ORDER_TOPIC,
       fromBeginning: true,
     });
 
     await consumer.run({
       eachMessage: async (message) => {
-        console.log(message.message.value?.toString());
+        // console.log(message.message.value?.toString());
+        const val = message.message.value?.toString() || "";
+        console.log(val);
+        const parsed = JSON.parse(val);
+
+        if (!parsed) {
+          return;
+        }
+
+        switch (parsed.type) {
+          case EVENT_TYPE.USER_REGISTER: {
+            console.log("HIT6");
+
+            const { email, balance } = parsed;
+            Users.set(email, { balance });
+            console.log("User Registered", email, balance);
+            break;
+          }
+
+          default:
+            break;
+        }
       },
     });
 

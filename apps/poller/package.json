@@ -12,6 +12,7 @@
   "description": "",
   "dependencies": {
     "@repo/shared-kafka": "1.0.0",
+    "@repo/constants":"1.0.0",
     "@types/ws": "^8.18.1",
     "redis": "^5.8.2",
     "ws": "^8.18.3"
