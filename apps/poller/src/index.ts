@@ -1,10 +1,6 @@
 import WebSocket from "ws";
-import { createClient } from "redis";
 import { KafkaProducer } from "@repo/shared-kafka";
 import { EVENT_TYPE, ORDER_TOPIC } from "@repo/constants";
-import { KafkaJSDeleteGroupsError } from "kafkajs";
-
-const PRICE_CHANNEL = "price_update";
 
 interface price {
   A: string;
@@ -25,11 +21,9 @@ async function main() {
 
   const producer = KafkaProducer.getInstance().getProducer();
 
-  let SOL_PRICE: price | Object = {};
-  let BTC_PRICE: price | Object = {};
-  let ETH_PRICE: price | Object = {};
-
-  const redisClient = await createClient().connect();
+  let SOL_PRICE = 0;
+  let BTC_PRICE = 0;
+  let ETH_PRICE = 0;
 
   ws.on("open", function open() {
     ws.send(
@@ -62,8 +56,8 @@ async function main() {
       topic: ORDER_TOPIC,
       messages: [
         {
-          type: EVENT_TYPE.PRICE_UPDATE,
           value: JSON.stringify({
+            type: EVENT_TYPE.PRICE_UPDATE,
             SOL_PRICE,
             ETH_PRICE,
             BTC_PRICE,
@@ -71,7 +65,7 @@ async function main() {
         },
       ],
     });
-  }, 100);
+  }, 10000);
 }
 
 main();

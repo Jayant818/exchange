@@ -30,7 +30,7 @@ export class KafkaConsumer {
         console.log(`Received message: ${message.message.value?.toString()}`);
         const val = message.message.value?.toString() || "";
         const parsed = JSON.parse(val);
-        const id = parsed.orderId;
+        const id = parsed.msgId;
         if (this.callbacks[id]) {
           this.callbacks[id](val);
           delete this.callbacks[id];

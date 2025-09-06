@@ -299,6 +299,7 @@ async function main() {
 
   app.get("/api/v1/balance/usd", async (req, res) => {
     try {
+      const email = req.query.email;
       const msgId = crypto.randomUUID();
 
       await producer.send({
@@ -308,6 +309,7 @@ async function main() {
             value: JSON.stringify({
               type: EVENT_TYPE.BALANCE_CHECK_USD,
               msgId,
+              email,
             }),
           },
         ],
