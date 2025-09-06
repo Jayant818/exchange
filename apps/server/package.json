@@ -12,6 +12,7 @@
   "description": "",
   "dependencies": {
     "@repo/db":"1.0.0",
+    "@repo/constants": "1.0.0",
     "@repo/shared-kafka": "1.0.0",
     "@types/express": "^5.0.3",
     "@types/nodemailer": "^7.0.1",

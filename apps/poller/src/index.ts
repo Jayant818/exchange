@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { createClient } from "redis";
+import { KafkaProducer } from "@repo/shared-kafka";
 
 const PRICE_CHANNEL = "price_update";
 
@@ -18,10 +19,11 @@ interface price {
 async function main() {
   const ws = new WebSocket("wss://ws.backpack.exchange/");
   ws.on("error", console.error);
+  const producer = KafkaProducer.getInstance().getProducer();
 
-  let SOL_PRICE: price;
-  let BTC_PRICE: price;
-  let ETH_PRICE: price;
+  let SOL_PRICE: price | Object = {};
+  let BTC_PRICE: price | Object = {};
+  let ETH_PRICE: price | Object = {};
 
   const redisClient = await createClient().connect();
 
@@ -29,41 +31,41 @@ async function main() {
     ws.send(
       JSON.stringify({
         method: "SUBSCRIBE",
-        params: ["trade.SOL_USDC", "trade.BTC_USDC", "trade.ETH_USDC"],
-        id: 4,
+        params: [
+          "bookTicker.SOL_USDC",
+          "bookTicker.BTC_USDC",
+          "bookTicker.ETH_USDC",
+        ],
+        id: 1,
       })
     );
-
-    //   ws.send(
-    //     JSON.stringify({
-    //       method: "SUBSCRIBE",
-    //       params: ["bookTicker.SOL_USDC_PERP"],
-    //       id: 2,
-    //     })
-    //   );
   });
 
   ws.on("message", (msg) => {
     const data = JSON.parse(msg.toString());
     if (data.stream === "bookTicker.SOL_USDC") {
-      SOL_PRICE = data.data;
+      SOL_PRICE = Math.round(parseFloat(data.data.a) * 100);
     } else if (data.stream === "bookTicker.BTC_USDC") {
-      BTC_PRICE = data.data;
+      BTC_PRICE = Math.round(parseFloat(data.data.a) * 100);
     } else {
-      ETH_PRICE = data.data;
+      ETH_PRICE = Math.round(parseFloat(data.data.a) * 100);
     }
     console.log(data);
   });
 
   setInterval(() => {
-    redisClient.publish(
-      PRICE_CHANNEL,
-      JSON.stringify({
-        SOL_PRICE,
-        ETH_PRICE,
-        BTC_PRICE,
-      })
-    );
+    producer.send({
+      topic: "current_price",
+      messages: [
+        {
+          value: JSON.stringify({
+            SOL_PRICE,
+            ETH_PRICE,
+            BTC_PRICE,
+          }),
+        },
+      ],
+    });
   }, 100);
 }
 

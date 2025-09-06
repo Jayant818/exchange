@@ -2,9 +2,16 @@ import express from "express";
 import * as jwt from "jsonwebtoken";
 import "dotenv/config";
 import nodemailer from "nodemailer";
-import { producer } from "@repo/shared-kafka";
+import { KafkaProducer } from "@repo/shared-kafka";
 import { createClient } from "redis";
 import prismaClient from "@repo/db";
+import { USER_REGISTER_TOPIC } from "@repo/constants";
+
+let message = {
+  to: "",
+  subject: "Login using MagicLink",
+  html: "",
+};
 
 function createToken(email: string) {
   const secret = process.env.TOKEN_SECRET;
@@ -23,6 +30,8 @@ function createToken(email: string) {
 async function sendAndAwait(topic: string, message: any) {
   return new Promise(async (res) => {
     const SubscriberClient = await createClient().connect();
+
+    const producer = KafkaProducer.getInstance().getProducer();
 
     SubscriberClient.subscribe(message.orderId, (msg) => {
       console.log("Received message:", msg);
@@ -51,8 +60,6 @@ async function main() {
 
   app.use(express.json());
 
-  await producer.connect();
-
   let transporter = nodemailer.createTransport({
     service: "gmail",
     auth: {
@@ -61,17 +68,32 @@ async function main() {
     },
   });
 
-  let message = {
-    to: "",
-    subject: "Login using MagicLink",
-    html: "",
-  };
+  async function sendLoginMail(email: string, token: string) {
+    try {
+      let htmlBody = `Click <a href="http://localhost:3001/verify?id=${token}">here</a> to verify your email.`;
+      message.html = htmlBody;
+      message.to = email;
+
+      transporter.sendMail(message, (err: any, info: any) => {
+        if (err) {
+          console.log("Error occurred");
+          console.log(err.message);
+          return;
+        }
+        console.log("Message sent successfully!");
+        console.log('Server responded with "%s"', info.response);
+      });
+    } catch (e) {
+      console.log("Error occurred while sending email");
+      console.log(e);
+    }
+  }
 
   app.get("/", (req, res) => {
     res.send("Server is running");
   });
 
-  app.post("/signup", async (req, res) => {
+  app.post("/api/v1/signup", async (req, res) => {
     try {
       const { email } = req.body;
       const id = crypto.randomUUID();
@@ -85,10 +107,6 @@ async function main() {
         return res.status(400).json({ message: "Error while creating token " });
       }
 
-      let htmlBody = `Click <a href="${FRONTEND_URL}/verify?id=${token}">here</a> to verify your email.`;
-      message.html = htmlBody;
-      message.to = email;
-
       const user = await prismaClient.user.create({
         data: {
           email,
@@ -96,15 +114,7 @@ async function main() {
         },
       });
 
-      transporter.sendMail(message, (err: any, info: any) => {
-        if (err) {
-          console.log("Error occurred");
-          console.log(err.message);
-          return;
-        }
-        console.log("Message sent successfully!");
-        console.log('Server responded with "%s"', info.response);
-      });
+      await sendLoginMail(email, token);
 
       return res.status(200).json({ message: "Signup successful" });
     } catch (e) {
@@ -113,8 +123,14 @@ async function main() {
     }
   });
 
-  app.post("/signin", async (req, res) => {
+  app.post("/api/v1/signin", async (req, res) => {
     const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        message: "Invalid Email",
+      });
+    }
 
     const user = await prismaClient.user.findUnique({
       where: {
@@ -128,9 +144,15 @@ async function main() {
 
     const token = createToken(email);
 
+    await sendLoginMail(email, token!);
+
     if (!token) {
       res.status(400).json({ message: "Error while creating token " });
     }
+
+    return res
+      .status(200)
+      .json({ message: "Mail is successfully sent to your email" });
   });
 
   app.get("/verify", async (req, res) => {
@@ -166,8 +188,22 @@ async function main() {
         },
       });
 
+      const producer = KafkaProducer.getInstance().getProducer();
+
+      await producer.send({
+        topic: USER_REGISTER_TOPIC,
+        messages: [
+          {
+            value: JSON.stringify({
+              email: verifiedToken.email,
+              balance: 500000,
+            }),
+          },
+        ],
+      });
+
       res.cookie("token", verifiedToken);
-      return res.redirect(FRONTEND_URL!);
+      return res.redirect("http://localhost:3000/verified");
     } catch (error) {}
   });
 

@@ -1,12 +1,27 @@
 import { Kafka } from "kafkajs";
 
-const kafka = new Kafka({
-  clientId: "my-app",
-  brokers: ["localhost:9092"],
-});
+export class KafkaProducer {
+  private static instance: KafkaProducer;
+  private producer: any;
 
-const consumer = kafka.consumer({ groupId: "order-group" });
+  private constructor() {
+    const kafka = new Kafka({
+      clientId: "my-app",
+      brokers: ["localhost:9092"],
+    });
 
-const producer = kafka.producer();
+    this.producer = kafka.producer();
+    this.producer.connect();
+  }
 
-export { consumer, producer };
+  static getInstance() {
+    if (!KafkaProducer.instance) {
+      KafkaProducer.instance = new KafkaProducer();
+    }
+    return KafkaProducer.instance;
+  }
+
+  getProducer() {
+    return this.producer;
+  }
+}
