@@ -1,0 +1,47 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User{
+  id String @id @default(cuid())
+  email String @unique
+  verified Boolean @default(false)
+  lastLoggedIn DateTime @default(now())
+  existingTrade ExistingTrade[] 
+}
+
+model ExistingTrade{
+  id String @id @default(cuid())
+  openPrice Float
+  closePrice Float 
+  leverage Float
+  pnl Float
+  liquidated Boolean
+  createdAt DateTime @default(now())
+  assetId String
+  // If asset is deleted then all the trades related to it gets deleted
+  asset Asset @relation(fields: [assetId], references: [id], onDelete:Cascade)
+  userId String
+  user User @relation(fields: [userId],references: [id],onDelete: Cascade)
+}
+
+model Asset{
+  id String @id @default(cuid())
+  symbol String 
+  imageUrl String 
+  name String 
+  decimal Int
+  existingTrades ExistingTrade[]
+}
