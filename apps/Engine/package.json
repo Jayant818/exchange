@@ -4,11 +4,13 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev":"tsc -b && node dist/index.js"
+    "dev": "tsc -b && node dist/index.js"
   },
   "dependencies": {
-    "@repo/shared-kafka":"1.0.0",
-    "@repo/constants":"1.0.0"
+    "@aws-sdk/client-s3": "^3.883.0",
+    "@repo/constants": "1.0.0",
+    "@repo/shared-kafka": "1.0.0",
+    "dotenv": "^17.2.2"
   },
   "keywords": [],
   "author": "",

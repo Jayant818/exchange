@@ -1,57 +1,37 @@
 import { ENGINE_TO_SERVER, EVENT_TYPE, ORDER_TOPIC } from "@repo/constants";
 import { KafkaProducer } from "@repo/shared-kafka";
-import { Kafka } from "kafkajs";
+import { Consumer, Kafka } from "kafkajs";
 import { Heap } from "heap-js";
+import {
+  AppState,
+  ASSET,
+  Asset,
+  ClosedOrderDetails,
+  HeapItem,
+  OrderDetails,
+  UserData,
+} from "./types";
+import { deserialize, loadSnapShot, saveSnapShot } from "./snapshotter";
+import "dotenv/config";
 
 const PRICE_CHANNEL = "price_update";
 
-enum ASSET {
-  BTC = "BTC",
-  ETH = "ETH",
-  SOL = "SOL",
-}
+let appState: AppState = {
+  Users: new Map(),
+  orders: new Map(),
+  mappedOrderswithUser: new Map(),
+  assetPrice: new Map(),
+  maxHeapForLongLiquation: new Map<string, Heap<HeapItem>>(),
+  minHeapForShortLiquidation: new Map<string, Heap<HeapItem>>(),
+  CLOSED_ORDERS: new Map(),
+};
 
-type Asset = keyof typeof ASSET;
-
-// userId -> Balance
-// Assets are assets that are borrowed for leverage trading.
-let Users = new Map<
-  string,
-  {
-    balance: number;
-    assets?: Record<string, number>;
-    lockedBalance?: number;
-    BorrowedAssets?: Record<string, number>;
-  }
->();
-// orderId -> Orders
-let orders = new Map();
-
-// user->orderIds[]
-let mappedOrderswithUser = new Map<string, string[]>();
-
-let assetPrice = new Map<Asset, number>();
-
-let maxHeapForLongLiquation = new Heap<{
-  liquidationPrice: number;
-  orderId: string;
-}>((a, b) => b.liquidationPrice - a.liquidationPrice);
-
-let minHeapForShortLiquidation = new Heap<{
-  liquidationPrice: number;
-  orderId: string;
-}>((a, b) => a.liquidationPrice - b.liquidationPrice);
-
-let CLOSED_ORDERS = new Map();
-
-setInterval(() => {
-  console.log("USERS", Users);
-  console.log("ORDERS", orders);
-  console.log("MAPPED_ORDERS", mappedOrderswithUser);
-}, 20000);
+let lastSnapShotTime = Date.now();
+const SNAPSHOT_INTERVAL_MS = 10000;
+const lastProcessedOffsets: Record<number, string> = {};
 
 function lockBalance(email: string, amount: number): boolean {
-  const user = Users.get(email);
+  const user = appState.Users.get(email);
   if (!user) {
     console.log("User not found:", email);
     return false;
@@ -68,7 +48,7 @@ function lockBalance(email: string, amount: number): boolean {
 }
 
 function unlockBalance(email: string, amount: number): boolean {
-  const user = Users.get(email);
+  const user = appState.Users.get(email);
   if (!user || !user.lockedBalance || user.lockedBalance < amount) {
     console.log("Cannot unlock balance, insufficient locked balance:", email);
     return false;
@@ -81,7 +61,7 @@ function unlockBalance(email: string, amount: number): boolean {
 
 function getMarginRequired(leverage: number, Qty: number, asset: Asset) {
   let margin = 0;
-  let price = assetPrice.get(asset);
+  let price = appState.assetPrice.get(asset);
 
   if (!price) {
     console.log("Price not available for asset:", asset);
@@ -95,7 +75,7 @@ function getMarginRequired(leverage: number, Qty: number, asset: Asset) {
 }
 
 function addAsset(email: string, asset: Asset, qty: number) {
-  const user = Users.get(email);
+  const user = appState.Users.get(email);
   if (!user) {
     console.log("User not found:", email);
     return false;
@@ -110,7 +90,7 @@ function addAsset(email: string, asset: Asset, qty: number) {
 }
 
 function addBorrowedAsset(email: string, asset: Asset, qty: number) {
-  const user = Users.get(email);
+  const user = appState.Users.get(email);
   if (!user) {
     console.log("User not found:", email);
     return false;
@@ -125,7 +105,7 @@ function addBorrowedAsset(email: string, asset: Asset, qty: number) {
 }
 
 function getCurrentPrice(asset: Asset): number {
-  return assetPrice.get(asset) || 0;
+  return appState.assetPrice.get(asset) || 0;
 }
 
 function getLeveragedPriceLimit(
@@ -151,7 +131,7 @@ function liquidateBorrowedAsset(
   qty: number,
   fullPrice: number
 ) {
-  const user = Users.get(email);
+  const user = appState.Users.get(email);
   if (
     !user ||
     !user.BorrowedAssets ||
@@ -177,6 +157,58 @@ function liquidateBorrowedAsset(
   return true;
 }
 
+async function loadSnapshotAndSeek(consumer: Consumer) {
+  const snapshot = await loadSnapShot();
+  if (snapshot) {
+    appState = deserialize(snapshot.state);
+
+    // assigning the last processed offsets from snapshot to the current offsets
+    Object.assign(lastProcessedOffsets, snapshot.lastProcessedOffsets);
+
+    console.log("state restored from snapshot");
+
+    // seek is a method that lets you manually set the offset for a given topic-partition
+    consumer.on(consumer.events.GROUP_JOIN, ({ payload }) => {
+      // Get all topics and partitions assigned to this consumer
+      const memberAssignments = payload.memberAssignment;
+
+      // const seekOperations = [];
+
+      for (const [topic, partitions] of Object.entries(memberAssignments)) {
+        // Looping over all the partitions
+        for (const partition of partitions) {
+          const savedOffset = lastProcessedOffsets[partition];
+          if (savedOffset) {
+            // Start from the next offset after the last processed one
+            const nextOffset = BigInt(savedOffset) + BigInt(1);
+            console.log(
+              `Seeking topic ${topic} partition ${partition} to offset ${nextOffset}`
+            );
+            // seekOperations.push(
+            consumer.seek({
+              topic,
+              partition,
+              offset: nextOffset.toString(),
+            });
+            // );
+          } else {
+            console.log(
+              `No snapshot offset found for partition ${partition}. Starting from beginning.`
+            );
+            // seekOperations.push(
+            consumer.seek({ topic, partition, offset: "0" });
+            // );
+          }
+        }
+      }
+    });
+  } else {
+    console.log(
+      "No snapshot found. Consumer will start based on 'fromBeginning' setting."
+    );
+  }
+}
+
 async function main() {
   try {
     const kafkaClient = new Kafka({
@@ -188,7 +220,11 @@ async function main() {
 
     const producer = KafkaProducer.getInstance().getProducer();
 
-    const consumer = kafkaClient.consumer({ groupId: "order-group" });
+    const consumer = kafkaClient.consumer({
+      groupId: "order-group",
+    });
+
+    await loadSnapshotAndSeek(consumer);
     await consumer.connect();
 
     await consumer.subscribe({
@@ -197,7 +233,7 @@ async function main() {
     });
 
     await consumer.run({
-      eachMessage: async ({ message }) => {
+      eachMessage: async ({ topic, partition, message }) => {
         const val = message.value?.toString() || "";
         const parsed = JSON.parse(val);
 
@@ -210,7 +246,12 @@ async function main() {
         switch (parsed.type) {
           case EVENT_TYPE.USER_REGISTER: {
             const { email, balance } = parsed;
-            Users.set(email, { balance });
+            appState.Users.set(email, {
+              balance,
+              lockedBalance: 0,
+              assets: {},
+              BorrowedAssets: {},
+            });
             console.log("User Registered:", email, balance);
             await producer.send({
               topic: ENGINE_TO_SERVER,
@@ -240,7 +281,7 @@ async function main() {
             } = parsed;
 
             if (
-              !assetPrice.has(asset) ||
+              !appState.assetPrice.has(asset) ||
               !leverage ||
               !qty ||
               slippage < 0 ||
@@ -250,7 +291,7 @@ async function main() {
               break;
             }
 
-            if (!Users.has(email)) {
+            if (!appState.Users.has(email)) {
               console.log("User not found for order:", email);
               break;
             }
@@ -276,7 +317,7 @@ async function main() {
             if (side === "LONG") {
               addAsset(email, asset, qty);
 
-              orders.set(orderId, {
+              appState.orders.set(orderId, {
                 asset,
                 side,
                 qty,
@@ -288,11 +329,11 @@ async function main() {
                 status: "OPEN",
               });
 
-              if (!mappedOrderswithUser.has(email)) {
-                mappedOrderswithUser.set(email, []);
+              if (!appState.mappedOrderswithUser.has(email)) {
+                appState.mappedOrderswithUser.set(email, []);
               }
 
-              mappedOrderswithUser.get(email)?.push(orderId);
+              appState.mappedOrderswithUser.get(email)?.push(orderId);
 
               const leveragedPriceLimit = getLeveragedPriceLimit(
                 side,
@@ -300,7 +341,7 @@ async function main() {
                 actualPriceForAnAsset
               );
 
-              maxHeapForLongLiquation.push({
+              appState.maxHeapForLongLiquation.push({
                 liquidationPrice: leveragedPriceLimit,
                 orderId,
               });
@@ -313,7 +354,7 @@ async function main() {
               // Liquidate the asset immediately to get the USD equivalent
               liquidateBorrowedAsset(email, asset, qty, fullPrice);
 
-              orders.set(orderId, {
+              appState.orders.set(orderId, {
                 asset,
                 side,
                 qty,
@@ -325,11 +366,11 @@ async function main() {
                 status: "OPEN",
               });
 
-              if (!mappedOrderswithUser.has(email)) {
-                mappedOrderswithUser.set(email, []);
+              if (!appState.mappedOrderswithUser.has(email)) {
+                appState.mappedOrderswithUser.set(email, []);
               }
 
-              mappedOrderswithUser.get(email)?.push(orderId);
+              appState.mappedOrderswithUser.get(email)?.push(orderId);
 
               const leveragedPriceLimit = getLeveragedPriceLimit(
                 side,
@@ -337,7 +378,7 @@ async function main() {
                 actualPriceForAnAsset
               );
 
-              minHeapForShortLiquidation.push({
+              appState.minHeapForShortLiquidation.push({
                 liquidationPrice: leveragedPriceLimit,
                 orderId,
               });
@@ -350,14 +391,14 @@ async function main() {
 
           case EVENT_TYPE.ORDER_CANCELLED: {
             const { msgId: orderId, email } = parsed;
-            orders.delete(orderId);
+            appState.orders.delete(orderId);
             console.log("Order Cancelled:", orderId);
             break;
           }
 
           case EVENT_TYPE.ORDER_CLOSED: {
             const { orderId, email } = parsed;
-            orders.delete(orderId);
+            appState.orders.delete(orderId);
             console.log("Order Closed:", orderId);
             break;
           }
@@ -365,25 +406,31 @@ async function main() {
           case EVENT_TYPE.PRICE_UPDATE: {
             const { SOL_PRICE, BTC_PRICE, ETH_PRICE } = parsed;
             console.log("Price Update:", { SOL_PRICE, BTC_PRICE, ETH_PRICE });
-            assetPrice.set(ASSET.SOL, SOL_PRICE);
-            assetPrice.set(ASSET.BTC, BTC_PRICE);
-            assetPrice.set(ASSET.ETH, ETH_PRICE);
+            appState.assetPrice.set(ASSET.SOL, SOL_PRICE);
+            appState.assetPrice.set(ASSET.BTC, BTC_PRICE);
+            appState.assetPrice.set(ASSET.ETH, ETH_PRICE);
 
-            Array.from(assetPrice.keys()).forEach((asset) => {
-              console.log(`Current price of ${asset}:`, assetPrice.get(asset));
+            Array.from(appState.assetPrice.keys()).forEach((asset) => {
+              console.log(
+                `Current price of ${asset}:`,
+                appState.assetPrice.get(asset)
+              );
 
-              while (maxHeapForLongLiquation.size() > 0) {
-                const top = maxHeapForLongLiquation.peek();
+              while (appState.maxHeapForLongLiquation.size() > 0) {
+                const top = appState.maxHeapForLongLiquation.peek();
                 if (
                   top &&
-                  assetPrice.get(asset) !== undefined &&
-                  assetPrice.get(asset)! <= top.liquidationPrice
+                  appState.assetPrice.get(asset) !== undefined &&
+                  appState.assetPrice.get(asset)! <= top.liquidationPrice
                 ) {
-                  const liquidatedOrder = maxHeapForLongLiquation.pop();
+                  const liquidatedOrder =
+                    appState.maxHeapForLongLiquation.pop();
                   if (liquidatedOrder) {
-                    const { qty, boughtPrice, margin, email } = orders.get(
-                      liquidatedOrder.orderId
-                    );
+                    const order = appState.orders.get(liquidatedOrder.orderId);
+                    if (!order) {
+                      continue;
+                    }
+                    const { qty, boughtPrice, margin, email } = order;
                     let pnl = 0;
 
                     pnl = getCurrentPrice(asset) * qty - boughtPrice;
@@ -393,20 +440,22 @@ async function main() {
                     unlockBalance(email, margin);
 
                     // Update user balance
-                    const user = Users.get(email);
+                    const user = appState.Users.get(email);
                     if (user) {
                       user.balance += pnl;
                     }
 
-                    const orderDetails = orders.get(liquidatedOrder.orderId);
+                    const orderDetails = appState.orders.get(
+                      liquidatedOrder.orderId
+                    );
 
                     if (orderDetails) {
                       console.log(
                         "Order Liquidated due to price drop:",
                         liquidatedOrder.orderId
                       );
-                      orders.delete(liquidatedOrder.orderId);
-                      CLOSED_ORDERS.set(liquidatedOrder.orderId, {
+                      appState.orders.delete(liquidatedOrder.orderId);
+                      appState.CLOSED_ORDERS.set(liquidatedOrder.orderId, {
                         ...orderDetails,
                         status: "LIQUIDATED",
                         pnl,
@@ -418,19 +467,23 @@ async function main() {
                 }
               }
 
-              while (minHeapForShortLiquidation.size() > 0) {
-                const top = minHeapForShortLiquidation.peek();
+              while (appState.minHeapForShortLiquidation.size() > 0) {
+                const top = appState.minHeapForShortLiquidation.peek();
                 if (
                   top &&
-                  assetPrice.get(asset) !== undefined &&
-                  assetPrice.get(asset)! >= top.liquidationPrice
+                  appState.assetPrice.get(asset) !== undefined &&
+                  appState.assetPrice.get(asset)! >= top.liquidationPrice
                 ) {
-                  const liquidatedOrder = minHeapForShortLiquidation.pop();
+                  const liquidatedOrder =
+                    appState.minHeapForShortLiquidation.pop();
                   if (liquidatedOrder) {
-                    const { qty, boughtPrice, margin, email, asset } =
-                      orders.get(liquidatedOrder.orderId);
+                    const order = appState.orders.get(liquidatedOrder.orderId);
+                    if (!order) {
+                      continue;
+                    }
+                    const { qty, boughtPrice, margin, email, asset } = order;
 
-                    const user = Users.get(email);
+                    const user = appState.Users.get(email);
 
                     if (
                       !user ||
@@ -469,15 +522,17 @@ async function main() {
                       user.balance += pnl;
                     }
 
-                    const orderDetails = orders.get(liquidatedOrder.orderId);
+                    const orderDetails = appState.orders.get(
+                      liquidatedOrder.orderId
+                    );
 
                     if (orderDetails) {
                       console.log(
                         "Order Liquidated due to price rise:",
                         liquidatedOrder.orderId
                       );
-                      orders.delete(liquidatedOrder.orderId);
-                      CLOSED_ORDERS.set(liquidatedOrder.orderId, {
+                      appState.orders.delete(liquidatedOrder.orderId);
+                      appState.CLOSED_ORDERS.set(liquidatedOrder.orderId, {
                         ...orderDetails,
                         status: "LIQUIDATED",
                         pnl,
@@ -496,7 +551,7 @@ async function main() {
             console.log("Balance check event received:", parsed);
             const { msgId, email } = parsed;
 
-            const balance = Users.get(email)?.balance;
+            const balance = appState.Users.get(email)?.balance;
 
             await producer.send({
               topic: ENGINE_TO_SERVER,
@@ -518,7 +573,7 @@ async function main() {
             const { msgId, balance, email } = parsed;
             console.log("Full Balance Check:", msgId, balance, email);
 
-            const totalAssets = Users.get(email) || {};
+            const totalAssets = appState.Users.get(email)?.BorrowedAssets || {};
 
             await producer.send({
               topic: ENGINE_TO_SERVER,
@@ -545,6 +600,20 @@ async function main() {
             console.warn("Unhandled event type:", parsed.type);
             break;
         }
+
+        const currentTime = Date.now();
+        if (currentTime - lastSnapShotTime > SNAPSHOT_INTERVAL_MS) {
+          await saveSnapShot(lastProcessedOffsets, appState);
+          lastSnapShotTime = currentTime;
+        }
+
+        await consumer.commitOffsets([
+          {
+            topic,
+            partition,
+            offset: (BigInt(message.offset) + 1n).toString(),
+          },
+        ]);
       },
     });
   } catch (error) {
