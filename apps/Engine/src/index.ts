@@ -109,11 +109,11 @@ function getCurrentPrice(asset: Asset): number {
 }
 
 function getLeveragedPriceLimit(
-  side: "BUY" | "SELL",
+  side: "LONG" | "SHORT",
   leverage: number,
   price: number
 ): number {
-  if (side === "BUY") {
+  if (side === "LONG") {
     const marginForOneUnit = price / leverage;
 
     return price - marginForOneUnit;
@@ -233,6 +233,7 @@ async function main() {
     });
 
     await consumer.run({
+      autoCommit: false,
       eachMessage: async ({ topic, partition, message }) => {
         const val = message.value?.toString() || "";
         const parsed = JSON.parse(val);
@@ -341,7 +342,15 @@ async function main() {
                 actualPriceForAnAsset
               );
 
-              appState.maxHeapForLongLiquation.push({
+              if (!appState.maxHeapForLongLiquation.has(asset)) {
+                appState.maxHeapForLongLiquation.set(
+                  asset,
+                  new Heap<HeapItem>(
+                    (a, b) => b.liquidationPrice - a.liquidationPrice
+                  )
+                );
+              }
+              appState.maxHeapForLongLiquation.get(asset)?.push({
                 liquidationPrice: leveragedPriceLimit,
                 orderId,
               });
@@ -378,7 +387,16 @@ async function main() {
                 actualPriceForAnAsset
               );
 
-              appState.minHeapForShortLiquidation.push({
+              if (!appState.minHeapForShortLiquidation.has(asset)) {
+                appState.minHeapForShortLiquidation.set(
+                  asset,
+                  new Heap<HeapItem>(
+                    (a, b) => a.liquidationPrice - b.liquidationPrice
+                  )
+                );
+              }
+
+              appState.minHeapForShortLiquidation.get(asset)?.push({
                 liquidationPrice: leveragedPriceLimit,
                 orderId,
               });
@@ -390,9 +408,12 @@ async function main() {
           }
 
           case EVENT_TYPE.ORDER_CANCELLED: {
-            const { msgId: orderId, email } = parsed;
-            appState.orders.delete(orderId);
-            console.log("Order Cancelled:", orderId);
+            const { msgId: orderId } = parsed;
+            const order = appState.orders.get(orderId);
+            if (order) {
+              unlockBalance(order.email, order.margin);
+              appState.orders.delete(orderId);
+            }
             break;
           }
 
@@ -416,15 +437,18 @@ async function main() {
                 appState.assetPrice.get(asset)
               );
 
-              while (appState.maxHeapForLongLiquation.size() > 0) {
-                const top = appState.maxHeapForLongLiquation.peek();
+              while (
+                (appState.maxHeapForLongLiquation.get(asset)?.size() || 0) > 0
+              ) {
+                const top = appState.maxHeapForLongLiquation.get(asset)?.peek();
                 if (
                   top &&
                   appState.assetPrice.get(asset) !== undefined &&
                   appState.assetPrice.get(asset)! <= top.liquidationPrice
                 ) {
-                  const liquidatedOrder =
-                    appState.maxHeapForLongLiquation.pop();
+                  const liquidatedOrder = appState.maxHeapForLongLiquation
+                    .get(asset)
+                    ?.pop();
                   if (liquidatedOrder) {
                     const order = appState.orders.get(liquidatedOrder.orderId);
                     if (!order) {
@@ -467,15 +491,21 @@ async function main() {
                 }
               }
 
-              while (appState.minHeapForShortLiquidation.size() > 0) {
-                const top = appState.minHeapForShortLiquidation.peek();
+              while (
+                (appState.minHeapForShortLiquidation.get(asset)?.size() || 0) >
+                0
+              ) {
+                const top = appState.minHeapForShortLiquidation
+                  .get(asset)
+                  ?.peek();
                 if (
                   top &&
                   appState.assetPrice.get(asset) !== undefined &&
                   appState.assetPrice.get(asset)! >= top.liquidationPrice
                 ) {
-                  const liquidatedOrder =
-                    appState.minHeapForShortLiquidation.pop();
+                  const liquidatedOrder = appState.minHeapForShortLiquidation
+                    .get(asset)
+                    ?.pop();
                   if (liquidatedOrder) {
                     const order = appState.orders.get(liquidatedOrder.orderId);
                     if (!order) {
