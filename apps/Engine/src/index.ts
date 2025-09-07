@@ -17,7 +17,12 @@ type Asset = keyof typeof ASSET;
 // Assets are assets that are borrowed for leverage trading.
 let Users = new Map<
   string,
-  { balance: number; assets?: Record<string, number>; lockedBalance?: number }
+  {
+    balance: number;
+    assets?: Record<string, number>;
+    lockedBalance?: number;
+    BorrowedAssets?: Record<string, number>;
+  }
 >();
 // orderId -> Orders
 let orders = new Map();
@@ -31,6 +36,11 @@ let maxHeapForLongLiquation = new Heap<{
   liquidationPrice: number;
   orderId: string;
 }>((a, b) => b.liquidationPrice - a.liquidationPrice);
+
+let minHeapForShortLiquidation = new Heap<{
+  liquidationPrice: number;
+  orderId: string;
+}>((a, b) => a.liquidationPrice - b.liquidationPrice);
 
 let CLOSED_ORDERS = new Map();
 
@@ -84,7 +94,7 @@ function getMarginRequired(leverage: number, Qty: number, asset: Asset) {
   return margin;
 }
 
-function addBorrowedAsset(email: string, asset: Asset, qty: number) {
+function addAsset(email: string, asset: Asset, qty: number) {
   const user = Users.get(email);
   if (!user) {
     console.log("User not found:", email);
@@ -96,6 +106,21 @@ function addBorrowedAsset(email: string, asset: Asset, qty: number) {
   }
 
   user.assets[asset] = (user.assets[asset] || 0) + qty;
+  return true;
+}
+
+function addBorrowedAsset(email: string, asset: Asset, qty: number) {
+  const user = Users.get(email);
+  if (!user) {
+    console.log("User not found:", email);
+    return false;
+  }
+
+  if (!user.BorrowedAssets) {
+    user.BorrowedAssets = {};
+  }
+
+  user.BorrowedAssets[asset] = (user.BorrowedAssets[asset] || 0) + qty;
   return true;
 }
 
@@ -118,6 +143,38 @@ function getLeveragedPriceLimit(
 
     return price + marginForOneUnit;
   }
+}
+
+function liquidateBorrowedAsset(
+  email: string,
+  asset: Asset,
+  qty: number,
+  fullPrice: number
+) {
+  const user = Users.get(email);
+  if (
+    !user ||
+    !user.BorrowedAssets ||
+    (user.BorrowedAssets[asset] || 0) < qty
+  ) {
+    console.log("Cannot liquidate, insufficient borrowed assets:", email);
+    return false;
+  }
+
+  if (!user.BorrowedAssets[asset]) {
+    throw new Error("No borrowed assets to liquidate");
+  }
+
+  user.BorrowedAssets[asset] -= qty;
+
+  if (!user) {
+    console.log("User not found:", email);
+    return false;
+  }
+
+  user.balance += fullPrice;
+
+  return true;
 }
 
 async function main() {
@@ -212,45 +269,79 @@ async function main() {
               break;
             }
 
-            let amountToLock = margin * leverage;
+            let amountToLock = margin;
 
             lockBalance(email, amountToLock);
 
-            orders.set(orderId, {
-              asset,
-              side,
-              qty,
-              margin,
-              leverage,
-              slippage,
-              email,
-              boughtPrice: fullPrice,
-              status: "OPEN",
-            });
+            if (side === "LONG") {
+              addAsset(email, asset, qty);
 
-            if (!mappedOrderswithUser.has(email)) {
-              mappedOrderswithUser.set(email, []);
-            }
+              orders.set(orderId, {
+                asset,
+                side,
+                qty,
+                margin,
+                leverage,
+                slippage,
+                email,
+                boughtPrice: fullPrice,
+                status: "OPEN",
+              });
 
-            mappedOrderswithUser.get(email)?.push(orderId);
+              if (!mappedOrderswithUser.has(email)) {
+                mappedOrderswithUser.set(email, []);
+              }
 
-            addBorrowedAsset(email, asset, qty);
+              mappedOrderswithUser.get(email)?.push(orderId);
 
-            const leveragedPriceLimit = getLeveragedPriceLimit(
-              side,
-              leverage,
-              actualPriceForAnAsset
-            );
+              const leveragedPriceLimit = getLeveragedPriceLimit(
+                side,
+                leverage,
+                actualPriceForAnAsset
+              );
 
-            if (side === "BUY") {
               maxHeapForLongLiquation.push({
                 liquidationPrice: leveragedPriceLimit,
                 orderId,
               });
             } else {
-              // For SELL orders, we can implement a min-heap for short liquidation if needed
-            }
+              // For Short orders , mocking the functionality of borrowing the assets and then to sell
 
+              // get the asset
+              addBorrowedAsset(email, asset, qty);
+
+              // Liquidate the asset immediately to get the USD equivalent
+              liquidateBorrowedAsset(email, asset, qty, fullPrice);
+
+              orders.set(orderId, {
+                asset,
+                side,
+                qty,
+                margin,
+                leverage,
+                slippage,
+                email,
+                boughtPrice: fullPrice,
+                status: "OPEN",
+              });
+
+              if (!mappedOrderswithUser.has(email)) {
+                mappedOrderswithUser.set(email, []);
+              }
+
+              mappedOrderswithUser.get(email)?.push(orderId);
+
+              const leveragedPriceLimit = getLeveragedPriceLimit(
+                side,
+                leverage,
+                actualPriceForAnAsset
+              );
+
+              minHeapForShortLiquidation.push({
+                liquidationPrice: leveragedPriceLimit,
+                orderId,
+              });
+            }
             // orders.set(orderId, { asset, side, margin, leverage, slippage });
             // Map order to user if needed
             console.log("Order Created:", orderId, asset, side);
@@ -312,6 +403,77 @@ async function main() {
                     if (orderDetails) {
                       console.log(
                         "Order Liquidated due to price drop:",
+                        liquidatedOrder.orderId
+                      );
+                      orders.delete(liquidatedOrder.orderId);
+                      CLOSED_ORDERS.set(liquidatedOrder.orderId, {
+                        ...orderDetails,
+                        status: "LIQUIDATED",
+                        pnl,
+                      });
+                    }
+                  }
+                } else {
+                  break;
+                }
+              }
+
+              while (minHeapForShortLiquidation.size() > 0) {
+                const top = minHeapForShortLiquidation.peek();
+                if (
+                  top &&
+                  assetPrice.get(asset) !== undefined &&
+                  assetPrice.get(asset)! >= top.liquidationPrice
+                ) {
+                  const liquidatedOrder = minHeapForShortLiquidation.pop();
+                  if (liquidatedOrder) {
+                    const { qty, boughtPrice, margin, email, asset } =
+                      orders.get(liquidatedOrder.orderId);
+
+                    const user = Users.get(email);
+
+                    if (
+                      !user ||
+                      !user.balance ||
+                      user.balance <= 0 ||
+                      !user.BorrowedAssets ||
+                      !user.BorrowedAssets[asset]
+                    ) {
+                      console.log("User has no balance to buy back the asset");
+                      break;
+                    }
+
+                    // Here bought The asset
+                    const priceOfAsset = getCurrentPrice(asset) * qty;
+
+                    user.balance -= priceOfAsset;
+
+                    // Bough the asset back to return the borrowed asset
+                    // addAsset(email, asset, qty);
+                    user.BorrowedAssets[asset] -= qty;
+
+                    // if (user.BorrowedAssets[asset] <= 0) {
+                    //   delete user.BorrowedAssets[asset];
+                    // }
+
+                    let pnl = 0;
+
+                    pnl = boughtPrice - priceOfAsset;
+                    let balanceToReturn = margin + pnl;
+
+                    // unlock balance
+                    unlockBalance(email, margin);
+
+                    // Update user balance
+                    if (user) {
+                      user.balance += pnl;
+                    }
+
+                    const orderDetails = orders.get(liquidatedOrder.orderId);
+
+                    if (orderDetails) {
+                      console.log(
+                        "Order Liquidated due to price rise:",
                         liquidatedOrder.orderId
                       );
                       orders.delete(liquidatedOrder.orderId);
