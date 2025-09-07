@@ -24,6 +24,7 @@
   ],
   "dependencies": {
     "@prisma/client": "^6.15.0",
+    "heap-js": "^2.6.0",
     "kafkajs": "^2.2.4"
   }
 }

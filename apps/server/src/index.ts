@@ -208,10 +208,11 @@ async function main() {
 
   app.post("/api/v1/trade/create", async (req, res) => {
     try {
+      // Price here needs to be full price of the order that we want to take place
       // Here we are simulating frontend otherwise we will get email from the token
-      const { asset, side, margin, leverage, slippage, email } = req.body;
+      const { asset, side, qty, leverage, slippage, email, price } = req.body;
 
-      if (!asset || !side || !margin || !leverage || !slippage) {
+      if (!asset || !side || !qty || !leverage || !slippage || !price) {
         return res.status(400).json({ message: "Invalid Trade Parameters" });
       }
 
@@ -225,9 +226,10 @@ async function main() {
               type: EVENT_TYPE.ORDER_CREATED,
               asset,
               side,
-              margin,
+              qty,
               leverage,
               slippage,
+              price,
               msgId,
               email,
             }),
