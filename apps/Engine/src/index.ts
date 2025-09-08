@@ -26,6 +26,14 @@ let appState: AppState = {
   CLOSED_ORDERS: new Map(),
 };
 
+setInterval(() => {
+  console.log("Current State:", {
+    users: appState.Users.size,
+    openOrders: appState.orders.size,
+    closedOrders: appState.CLOSED_ORDERS.size,
+  });
+}, 2000);
+
 let lastSnapShotTime = Date.now();
 const SNAPSHOT_INTERVAL_MS = 10000;
 // # If Multiple topics have same partitions then we will mix offsets of those topics
@@ -420,24 +428,77 @@ async function main() {
 
           case EVENT_TYPE.ORDER_CLOSED: {
             const { orderId, email } = parsed;
+            const order = appState.orders.get(orderId);
+            if (!order) {
+              console.log("Order not found to close:", orderId);
+              break;
+            }
+
+            const user = appState.Users.get(email);
+            if (!user) {
+              console.log("User not found:", email);
+              break;
+            }
+
+            let pnl = 0;
+
+            if (order.side === "LONG") {
+              const priceOfAsset = getCurrentPrice(order.asset) * order.qty;
+
+              if (
+                user.assets[order.asset] &&
+                user.assets[order.asset] >= order.qty
+              ) {
+                user.assets[order.asset] -= order.qty;
+                if (user.assets[order.asset] === 0) {
+                  delete user.assets[order.asset];
+                }
+
+                pnl = priceOfAsset - order.boughtPrice;
+
+                unlockBalance(email, order.margin);
+                user.balance += pnl;
+              }
+            } else {
+              const priceOfAsset = getCurrentPrice(order.asset) * order.qty;
+
+              if (user.BorrowedAssets[order.asset]) {
+                user.balance -= priceOfAsset; // pay back
+                // @ts-ignore
+                user.BorrowedAssets[order.asset] -= order.qty;
+
+                // @ts-ignore
+                if (user.BorrowedAssets[order.asset] <= 0) {
+                  delete user.BorrowedAssets[order.asset];
+                }
+
+                pnl = order.boughtPrice - priceOfAsset;
+
+                unlockBalance(email, order.margin);
+                user.balance += pnl;
+              }
+            }
+
+            // Save order before deleting
+            appState.CLOSED_ORDERS.set(orderId, {
+              ...order,
+              status: "CLOSED",
+              pnl,
+            });
+
             appState.orders.delete(orderId);
-            console.log("Order Closed:", orderId);
+
+            console.log("Order Closed:", orderId, "PnL:", pnl);
             break;
           }
 
           case EVENT_TYPE.PRICE_UPDATE: {
             const { SOL_PRICE, BTC_PRICE, ETH_PRICE } = parsed;
-            console.log("Price Update:", { SOL_PRICE, BTC_PRICE, ETH_PRICE });
             appState.assetPrice.set(ASSET.SOL, SOL_PRICE);
             appState.assetPrice.set(ASSET.BTC, BTC_PRICE);
             appState.assetPrice.set(ASSET.ETH, ETH_PRICE);
 
             Array.from(appState.assetPrice.keys()).forEach((asset) => {
-              console.log(
-                `Current price of ${asset}:`,
-                appState.assetPrice.get(asset)
-              );
-
               while (
                 (appState.maxHeapForLongLiquation.get(asset)?.size() || 0) > 0
               ) {
@@ -627,7 +688,7 @@ async function main() {
           }
 
           default:
-            console.warn("Unhandled event type:", parsed.type);
+            console.warn("Unhandled event type:", parsed);
             break;
         }
 

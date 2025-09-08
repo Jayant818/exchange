@@ -67,7 +67,7 @@ export async function uploadSnapShotToS3(
   try {
     const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,
-      Key: fileName,
+      Key: `snapshot/${fileName}`,
       Body: JSON.stringify(snapShotData, null, 2),
       ContentType: "application/json",
     });
@@ -86,7 +86,7 @@ export async function downloadSnapShotFromS3(
   try {
     const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
-      Key: fileName,
+      Key: `snapshot/${fileName}`,
     });
 
     const response = await s3Client.send(command);
@@ -113,10 +113,7 @@ export async function saveSnapShot(
     };
 
     // Upload timestamped snapshot (for history)
-    await uploadSnapShotToS3(
-      snapshotData,
-      `snapshots/snapshot_${Date.now()}.json`
-    );
+    await uploadSnapShotToS3(snapshotData, `snapshot_${Date.now()}.json`);
 
     // Also upload/update the latest snapshot
     await uploadSnapShotToS3(snapshotData, LATEST_SNAPSHOT_KEY);
