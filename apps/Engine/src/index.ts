@@ -28,7 +28,8 @@ let appState: AppState = {
 
 let lastSnapShotTime = Date.now();
 const SNAPSHOT_INTERVAL_MS = 10000;
-const lastProcessedOffsets: Record<number, string> = {};
+// # If Multiple topics have same partitions then we will mix offsets of those topics
+const lastProcessedOffsets: Record<string, string> = {};
 
 function lockBalance(email: string, amount: number): boolean {
   const user = appState.Users.get(email);
@@ -224,8 +225,8 @@ async function main() {
       groupId: "order-group",
     });
 
-    await loadSnapshotAndSeek(consumer);
     await consumer.connect();
+    await loadSnapshotAndSeek(consumer);
 
     await consumer.subscribe({
       topic: ORDER_TOPIC,
@@ -458,7 +459,6 @@ async function main() {
                     let pnl = 0;
 
                     pnl = getCurrentPrice(asset) * qty - boughtPrice;
-                    let balanceToReturn = margin + pnl;
 
                     // unlock balance
                     unlockBalance(email, margin);
@@ -523,7 +523,7 @@ async function main() {
                       !user.BorrowedAssets[asset]
                     ) {
                       console.log("User has no balance to buy back the asset");
-                      break;
+                      continue;
                     }
 
                     // Here bought The asset

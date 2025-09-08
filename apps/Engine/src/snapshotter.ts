@@ -7,8 +7,8 @@ const BUCKET_NAME = "my-trading-engine-snapshot-bucket";
 const LATEST_SNAPSHOT_KEY = "latest_snapshot.json";
 
 export interface ISnapshotData {
-  lastProcessedOffsets: Record<number, string>;
-  state: any;
+  lastProcessedOffsets: Record<string, string>;
+  state: ReturnType<typeof serialize>;
 }
 
 export function serialize(state: AppState) {
@@ -18,25 +18,36 @@ export function serialize(state: AppState) {
     mappedOrderswithUser: [...state.mappedOrderswithUser.entries()],
     assetPrice: [...state.assetPrice.entries()],
     closedOrders: [...state.CLOSED_ORDERS.entries()],
-    longLiquidationHeap: [...state.maxHeapForLongLiquation], // heap → array
-    shortLiquidationHeap: [...state.minHeapForShortLiquidation],
+    longLiquidationHeap: [...state.maxHeapForLongLiquation.entries()].map(
+      ([orderId, heap]) => [orderId, heap.toArray()]
+    ),
+    shortLiquidationHeap: [...state.minHeapForShortLiquidation.entries()].map(
+      ([orderId, heap]) => [orderId, heap.toArray()]
+    ),
   };
 }
 
 export function deserialize(snapshotState: any): AppState {
-  const maxHeap = new Heap<{ liquidationPrice: number; orderId: string }>(
-    (a, b) => b.liquidationPrice - a.liquidationPrice
-  );
-  snapshotState.longLiquidationHeap.forEach((item: HeapItem) =>
-    maxHeap.push(item)
-  );
+  const maxHeapForLongLiquation = new Map<string, Heap<HeapItem>>();
+  const minHeapForShortLiquidation = new Map<string, Heap<HeapItem>>();
 
-  const minHeap = new Heap<{ liquidationPrice: number; orderId: string }>(
-    (a, b) => a.liquidationPrice - b.liquidationPrice
-  );
-  snapshotState.shortLiquidationHeap.forEach((item: HeapItem) =>
-    minHeap.push(item)
-  );
+  for (const [orderId, heap] of snapshotState.longLiquidationHeap) {
+    const maxHeap = new Heap<{ liquidationPrice: number; orderId: string }>(
+      (a, b) => b.liquidationPrice - a.liquidationPrice
+    );
+
+    heap.forEach((item: HeapItem) => maxHeap.push(item));
+    maxHeapForLongLiquation.set(orderId, maxHeap);
+  }
+
+  for (const [orderId, heap] of snapshotState.shortLiquidationHeap) {
+    const minHeap = new Heap<{ liquidationPrice: number; orderId: string }>(
+      (a, b) => a.liquidationPrice - b.liquidationPrice
+    );
+
+    heap.forEach((item: HeapItem) => minHeap.push(item));
+    minHeapForShortLiquidation.set(orderId, minHeap);
+  }
 
   return {
     Users: new Map(snapshotState.users),
@@ -44,8 +55,8 @@ export function deserialize(snapshotState: any): AppState {
     mappedOrderswithUser: new Map(snapshotState.mappedOrderswithUser),
     assetPrice: new Map(snapshotState.assetPrice),
     CLOSED_ORDERS: new Map(snapshotState.closedOrders),
-    maxHeapForLongLiquation: maxHeap,
-    minHeapForShortLiquidation: minHeap,
+    maxHeapForLongLiquation,
+    minHeapForShortLiquidation,
   };
 }
 
@@ -92,7 +103,7 @@ export async function downloadSnapShotFromS3(
 }
 
 export async function saveSnapShot(
-  offsets: Record<number, string>,
+  offsets: Record<string, string>,
   state: AppState
 ): Promise<void> {
   try {
