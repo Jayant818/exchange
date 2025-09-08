@@ -1,12 +1,13 @@
 import express from "express";
 import * as jwt from "jsonwebtoken";
 import "dotenv/config";
-import nodemailer from "nodemailer";
-import { KafkaProducer } from "@repo/shared-kafka";
-import { createClient } from "redis";
-import prismaClient from "@repo/db";
-import { ENGINE_TO_SERVER, EVENT_TYPE, ORDER_TOPIC } from "@repo/constants";
+import { EVENT_TYPE, ORDER_TOPIC } from "@repo/constants";
 import crypto from "crypto";
+import { Transporter } from "nodemailer";
+import SMTPTransport from "nodemailer/lib/smtp-transport";
+import { Consumer, Producer } from "kafkajs";
+import { createToken, sendLoginMail } from "./utils";
+import { PrismaClient } from "@prisma/client/extension";
 import { KafkaConsumer } from "./KafkaConsumer";
 
 let message = {
@@ -15,64 +16,27 @@ let message = {
   html: "",
 };
 
-function createToken(email: string) {
-  const secret = process.env.TOKEN_SECRET;
+const SUPPORTED_ASSETS = ["BTC", "SOL", "ETH"];
+const SIDES = ["SHORT", "LONG"];
 
-  if (!secret || secret === undefined) {
-    return null;
-  }
-
-  const token = jwt.sign({ email }, secret!, {
-    expiresIn: "1h",
-  });
-
-  return token;
-}
-
-const ACCESS_TOKEN = "";
-const REFRESH_TOKEN = "";
-
-async function main() {
+function createApp({
+  transporter,
+  producer,
+  prismaClient,
+  consumer,
+}: {
+  transporter: Transporter<
+    SMTPTransport.SentMessageInfo,
+    SMTPTransport.Options
+  >;
+  producer: Producer;
+  prismaClient: PrismaClient;
+  consumer: typeof KafkaConsumer;
+}) {
   const app = express();
   const FRONTEND_URL = process.env.FRONTEND_URL;
-  const port = 3001;
 
   app.use(express.json());
-
-  let transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: "yadavjayant2003@gmail.com",
-      pass: process.env.APP_PASSWORD,
-    },
-  });
-
-  await KafkaProducer.getInstance().connect();
-
-  const producer = KafkaProducer.getInstance().getProducer();
-
-  KafkaConsumer.getInstance().listenToTopic(ENGINE_TO_SERVER);
-
-  async function sendLoginMail(email: string, token: string) {
-    try {
-      let htmlBody = `Click <a href="http://localhost:3001/verify?id=${token}">here</a> to verify your email.`;
-      message.html = htmlBody;
-      message.to = email;
-
-      transporter.sendMail(message, (err: any, info: any) => {
-        if (err) {
-          console.log("Error occurred");
-          console.log(err.message);
-          return;
-        }
-        console.log("Message sent successfully!");
-        console.log('Server responded with "%s"', info.response);
-      });
-    } catch (e) {
-      console.log("Error occurred while sending email");
-      console.log(e);
-    }
-  }
 
   app.get("/", (req, res) => {
     res.send("Server is running");
@@ -82,7 +46,7 @@ async function main() {
     try {
       const { email } = req.body;
       const id = crypto.randomUUID();
-      if (!email || email === " ") {
+      if (!email || email === " " || !email.includes("@")) {
         return res.status(400).json({ message: "Invalid email" });
       }
 
@@ -99,7 +63,7 @@ async function main() {
         },
       });
 
-      await sendLoginMail(email, token);
+      await sendLoginMail(email, token, transporter, message);
 
       return res.status(200).json({ message: "Signup successful" });
     } catch (e) {
@@ -111,7 +75,7 @@ async function main() {
   app.post("/api/v1/signin", async (req, res) => {
     const { email } = req.body;
 
-    if (!email) {
+    if (!email || !email.includes("@")) {
       return res.status(400).json({
         message: "Invalid Email",
       });
@@ -129,7 +93,7 @@ async function main() {
 
     const token = createToken(email);
 
-    await sendLoginMail(email, token!);
+    await sendLoginMail(email, token!, transporter, message);
 
     if (!token) {
       res.status(400).json({ message: "Error while creating token " });
@@ -194,16 +158,12 @@ async function main() {
 
       console.log("HIT3");
 
-      await KafkaConsumer.getInstance().addCallBack(msgId);
+      await consumer.getInstance().addCallBack(msgId);
       console.log("HIT4");
 
       res.cookie("token", verifiedToken);
       return res.redirect("http://localhost:3000/verified");
     } catch (error) {}
-  });
-
-  app.post("/api/callback", (req, res) => {
-    console.log(req.body);
   });
 
   app.post("/api/v1/trade/create", async (req, res) => {
@@ -212,8 +172,31 @@ async function main() {
       // Here we are simulating frontend otherwise we will get email from the token
       const { asset, side, qty, leverage, slippage, email, price } = req.body;
 
-      if (!asset || !side || !qty || !leverage || !slippage || !price) {
+      if (
+        !asset ||
+        !side ||
+        !qty ||
+        !leverage ||
+        !slippage ||
+        !price ||
+        !SUPPORTED_ASSETS.includes(asset) ||
+        leverage <= 0 ||
+        price <= 0 ||
+        !SIDES.includes(side) ||
+        !email ||
+        !email.includes("@")
+      ) {
         return res.status(400).json({ message: "Invalid Trade Parameters" });
+      }
+
+      const user = await prismaClient.user.findUnique({
+        where: {
+          email,
+        },
+      });
+
+      if (!user) {
+        return res.status(400).send("User not found");
       }
 
       const msgId = crypto.randomUUID();
@@ -237,7 +220,7 @@ async function main() {
         ],
       });
 
-      await KafkaConsumer.getInstance().addCallBack(msgId);
+      // await consumer.getInstance().addCallBack(msgId);
 
       return res
         .status(200)
@@ -253,6 +236,25 @@ async function main() {
     try {
       const { orderId, email } = req.body;
 
+      if (
+        !orderId ||
+        !email ||
+        !email.includes("@") ||
+        typeof orderId !== "string"
+    ) {
+        return res.status(400).json({ message: "Invalid Request" });
+      }
+
+      const user = await prismaClient.user.findUnique({
+        where: {
+          email,
+        },
+      });
+
+      if (!user) {
+        return res.status(400).send("User not found");
+      }
+
       await producer.send({
         topic: ORDER_TOPIC,
         messages: [
@@ -266,7 +268,7 @@ async function main() {
         ],
       });
 
-      await KafkaConsumer.getInstance().addCallBack(orderId);
+      // await consumer.getInstance().addCallBack(orderId);
 
       return res.status(200).json({
         message: "Position Closed successfull",
@@ -297,7 +299,7 @@ async function main() {
         ],
       });
 
-      let data: any = await KafkaConsumer.getInstance().addCallBack(msgId);
+      let data: any = await consumer.getInstance().addCallBack(msgId);
 
       return res.status(200).json({
         balance: data.balance,
@@ -327,7 +329,7 @@ async function main() {
         ],
       });
 
-      const data: any = await KafkaConsumer.getInstance().addCallBack(msgId);
+      const data: any = await consumer.getInstance().addCallBack(msgId);
 
       return res.status(200).json({
         message: "Balance fetched successfully",
@@ -356,7 +358,7 @@ async function main() {
         ],
       });
 
-      const data: any = await KafkaConsumer.getInstance().addCallBack(msgId);
+      const data: any = await consumer.getInstance().addCallBack(msgId);
 
       return res.status(200).json({
         message: "Assets fetched successfully",
@@ -369,9 +371,7 @@ async function main() {
     }
   });
 
-  app.listen(port, () => {
-    console.log("Server is running on http://localhost:" + port);
-  });
+  return app;
 }
 
-main();
+export default createApp;

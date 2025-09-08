@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "dev": "tsc -b && node dist/index.js"
   },
   "keywords": [],
@@ -11,17 +11,20 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@repo/db":"1.0.0",
     "@repo/constants": "1.0.0",
+    "@repo/db": "1.0.0",
     "@repo/shared-kafka": "1.0.0",
     "@types/express": "^5.0.3",
     "@types/nodemailer": "^7.0.1",
+    "@types/supertest": "^6.0.3",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^7.0.6",
     "redis": "^5.8.2",
-    "sendmail": "^1.6.1"
+    "sendmail": "^1.6.1",
+    "supertest": "^7.1.4",
+    "vitest": "^3.2.4"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.10",
