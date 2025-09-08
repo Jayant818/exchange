@@ -1,25 +1,30 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import createApp from "..";
+import { mockDeep } from "vitest-mock-extended";
+import { PrismaClient } from "@prisma/client/extension";
 
-const fakePrisma = {
-  user: {
-    create: vi.fn().mockResolvedValue({ id: "1", email: "x@gmail.com" }),
-    findUnique: vi.fn(), // we’ll override in each test
-  },
-};
+// const fakePrisma = {
+//   user: {
+//     create: vi.fn().mockResolvedValue({ id: "1", email: "x@gmail.com" }),
+//     findUnique: vi.fn(), // we’ll override in each test
+//   },
+// };
 
+// using deepmock
 const fakeMailer = {
-  sendMail: async () => {},
+  sendMail: vi.fn(),
 };
 
 const fakeProducer = {
-  send: async () => {},
+  send: vi.fn(),
 };
 
 const fakeConsumer = {
-  addCallBack: async () => ({ balance: 1000 }),
+  addCallBack: vi.fn(),
 };
+
+const fakePrisma = mockDeep<PrismaClient>();
 
 const app = createApp({
   transporter: fakeMailer as any,
@@ -29,6 +34,14 @@ const app = createApp({
 });
 
 describe("Signup Route", () => {
+  beforeEach(() => {
+    // Either do this inside it or in beforeEach
+    fakePrisma.user.create.mockResolvedValue({
+      id: "1",
+      email: "x@gmail.com",
+    });
+  });
+
   it("should successfully signup a user", async () => {
     const res = await request(app).post("/api/v1/signup").send({
       email: "yadavjayant2003@gmail.com",
