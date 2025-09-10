@@ -1,4 +1,4 @@
-import { ENGINE_TO_SERVER } from "@repo/constants";
+import { ENGINE_TO_SERVER } from "@repo/common";
 import { KafkaProducer } from "@repo/shared-kafka";
 import { KafkaConsumer } from "./KafkaConsumer";
 import nodemailer from "nodemailer";

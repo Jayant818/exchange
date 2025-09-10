@@ -14,3 +14,20 @@ export enum EVENT_TYPE {
   FULL_BALANCE_CHECK = "FULL_BALANCE_CHECK",
   SUPPORTED_ASSETS = "SUPPORTED_ASSETS",
 }
+
+export const POLLING_ENGINE_EVENT_CHANNEL = "polling-channel-for-events";
+
+export const BINANCE_WS_URL = "wss://stream.binance.com:9443/stream?streams=";
+//stream.binance.com:9443/stream?streams=btcusdt@trade
+
+export const POLLING_ENGINE_DATA_CHANNEL = "polling-engine-data-channel";
+
+export const POLLING_ENGINE_QUEUE_NAME = "polling-engine-queue";
+
+export const MARKET_TRADE_CHANNELS = "market_trade_channels";
+
+export const SIMULATOR_MARGIN = 5; //5% margin
+
+export const TRADE_KEY = "trade_key";
+
+export const MESSAGE_QUEUE = "email_queue";

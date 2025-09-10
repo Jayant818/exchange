@@ -1,4 +1,4 @@
-import { ENGINE_TO_SERVER, EVENT_TYPE, ORDER_TOPIC } from "@repo/constants";
+import { ENGINE_TO_SERVER, EVENT_TYPE, ORDER_TOPIC } from "@repo/common";
 import { KafkaProducer } from "@repo/shared-kafka";
 import { Consumer, Kafka } from "kafkajs";
 import { Heap } from "heap-js";
@@ -447,8 +447,10 @@ async function main() {
 
               if (
                 user.assets[order.asset] &&
+                // @ts-ignore
                 user.assets[order.asset] >= order.qty
               ) {
+                // @ts-ignore
                 user.assets[order.asset] -= order.qty;
                 if (user.assets[order.asset] === 0) {
                   delete user.assets[order.asset];

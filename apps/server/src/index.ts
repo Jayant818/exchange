@@ -1,7 +1,7 @@
 import express from "express";
 import * as jwt from "jsonwebtoken";
 import "dotenv/config";
-import { EVENT_TYPE, ORDER_TOPIC } from "@repo/constants";
+import { EVENT_TYPE, ORDER_TOPIC } from "@repo/common";
 import crypto from "crypto";
 import { Transporter } from "nodemailer";
 import SMTPTransport from "nodemailer/lib/smtp-transport";
@@ -241,7 +241,7 @@ function createApp({
         !email ||
         !email.includes("@") ||
         typeof orderId !== "string"
-    ) {
+      ) {
         return res.status(400).json({ message: "Invalid Request" });
       }
 

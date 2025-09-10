@@ -1,50 +1,121 @@
+@import "tailwindcss";
+
+/* Exness Trading Theme */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Background Colors */
+  --trading-bg-primary: #ffffff;
+  --trading-bg-secondary: #f8fafc;
+  --trading-bg-tertiary: #f1f5f9;
+  --trading-bg-hover: #e2e8f0;
+  
+  /* Text Colors */
+  --trading-text-primary: #1e293b;
+  --trading-text-secondary: #64748b;
+  --trading-text-muted: #94a3b8;
+  
+  /* Border Colors */
+  --trading-border: #e2e8f0;
+  --trading-border-light: #cbd5e1;
+  
+  /* Trading Colors */
+  --trading-success: #22c55e;
+  --trading-success-bg: rgba(34, 197, 94, 0.1);
+  --trading-danger: #ef4444;
+  --trading-danger-bg: rgba(239, 68, 68, 0.1);
+  --trading-warning: #f59e0b;
+  --trading-blue: #3b82f6;
+  --trading-blue-light: #60a5fa;
+  
+  /* Exness Brand Colors */
+  --exness-orange: #ff6b00;
+  --exness-dark: #1e293b;
+  --exness-gray: #64748b;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Custom Scrollbar */
+.trading-scrollbar::-webkit-scrollbar {
+  width: 6px;
 }
 
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
+.trading-scrollbar::-webkit-scrollbar-track {
+  background: var(--trading-bg-tertiary);
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
+.trading-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--trading-border);
+  border-radius: 3px;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+.trading-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--trading-border-light);
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* Trading Layout */
+.trading-layout {
+  height: 100%;
+  background: var(--trading-bg-primary);
+  color: var(--trading-text-primary);
 }
 
-.imgDark {
-  display: none;
+/* Button Styles */
+.btn-trading-primary {
+  background: var(--exness-orange);
+  color: white;
+  transition: all 0.2s ease;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+.btn-trading-primary:hover {
+  background: #e55a00;
+}
 
-  .imgLight {
-    display: none;
-  }
-  .imgDark {
-    display: unset;
-  }
+.btn-trading-secondary {
+  background: var(--trading-bg-tertiary);
+  border: 1px solid var(--trading-border);
+  color: var(--trading-text-secondary);
+  transition: all 0.2s ease;
+}
+
+.btn-trading-secondary:hover {
+  background: var(--trading-bg-hover);
+  color: var(--trading-text-primary);
+}
+
+
+.custom-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: #2a3441; /* Track color */
+  border-radius: 5px;
+  outline: none;
+  opacity: 0.8;
+  transition: opacity .2s;
+}
+
+.custom-range:hover {
+  opacity: 1;
+}
+
+/* Thumb for Webkit browsers (Chrome, Safari, Opera, Edge) */
+.custom-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: #ff6b00; /* Thumb color - Exness Orange */
+  border-radius: 50%;
+  cursor: pointer;
+  border: 3px solid #141920; /* Border to match the panel background */
+  margin-top: -6px; /* Center the thumb on the track */
+}
+
+/* Thumb for Firefox */
+.custom-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: #ff6b00; /* Thumb color - Exness Orange */
+  border-radius: 50%;
+  cursor: pointer;
+  border: 3px solid #141920;
 }

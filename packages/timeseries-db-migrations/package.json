@@ -1,0 +1,20 @@
+{
+  "name": "@repo/timeseries-db-migrations",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "migrate:create": "node-pg-migrate create",
+    "migrate:up": "node-pg-migrate up --no-transaction",
+    "migrate:down": "node-pg-migrate down"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@types/pg": "^8.15.5",
+    "dotenv": "^17.2.1",
+    "node-pg-migrate": "^8.0.3",
+    "pg": "^8.16.3"
+  }
+}
